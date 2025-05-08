@@ -1,14 +1,14 @@
 version: '3.8'
 
 services:
-  tgbot-translator:
-    image: venompool/tgbot-translator
-    container_name: tgbot-translator
+  tgbot-chatbot:
+    image: venompool/tgbot-chatbot
+    container_name: tgbot-chatbot
     environment:
-      - BOT_TOKEN=你的tg bot token
-      - AI_API_KEY=你的 ai api key
-      - AI_API_ENDPOINT=你的 ai 接口（需要符合 OpenAI 接口规范）
-      - AI_MODEL=模型名字
+      - BOT_TOKEN=7397140864:AAEU6f77Dv-pj1ErQHlYxwaGj5BaN-wmqAM
+      - AI_API_KEY=xai-hiQsdIFNN5TVt0njSltDpdySRu3IsArl0Uz0fmEUvliXtryReT6OUtlb1UaUF7JrVLfPkSEAdSNucJSr
+      - AI_API_ENDPOINT=https://api.x.ai/v1/
+      - AI_MODEL=grok-3-latest
     volumes:
       - ./userConfig.json:/app/userConfig.json:ro
     restart: unless-stopped

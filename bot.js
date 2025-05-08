@@ -1,94 +1,80 @@
 require('dotenv').config();
 const { Telegraf } = require('telegraf');
-const { translateWithGrok, translateOtherLangWithGrok } = require('./translate');
+const { chatWithAI } = require('./chat');
 const fs = require('fs');
-// 从环境变量读取 token
+
 const botToken = process.env.BOT_TOKEN;
-
-const sessions = {}; // 存储会话数据
-
-const bot = new Telegraf(botToken); 
-
+const bot = new Telegraf(botToken);
 const userConfigPath = './userConfig.json';
 
 // 加载用户配置、验证用户权限
 function loadUserConfig() {
   if (!fs.existsSync(userConfigPath)) {
-    ctx.reply('❌ 你没有权限使用本机器人。\n❌ You do not have permission to use this bot.\n❌ У вас нет прав на использование этого бота.');
-    return false;
+    return null;
   }
-  return JSON.parse(fs.readFileSync(userConfigPath, 'utf-8'));
+  try {
+    return JSON.parse(fs.readFileSync(userConfigPath, 'utf-8'));
+  } catch (error) {
+    console.error('读取配置文件失败:', error);
+    return null;
+  }
 }
 
-
-// 处理所有文本消息
-bot.on('text', async (ctx) => {
-  const userId = ctx.from.id;
-  const text = ctx.message.text;
+// 权限检查中间件
+const authMiddleware = (ctx, next) => {
+  const userId = ctx.from.id.toString();
   const userConfig = loadUserConfig();
-
-  if (!userConfig[userId]) {
-    return ctx.reply('❌ 你没有权限使用本机器人。\n❌ You do not have permission to use this bot.\n❌ У вас нет прав на использование этого бота.');
+  
+  if (!userConfig || !userConfig[userId]) {
+    return ctx.reply('❌ 你没有权限使用本机器人。');
   }
+  
+  ctx.userConfig = userConfig[userId];
+  return next();
+};
 
-  const targetLang = userConfig[userId].targetlang;
-  const motherLang = userConfig[userId].motherlang;
-  const otherLang = userConfig[userId].otherlang;
+// 使用中间件
+bot.use(authMiddleware);
 
-  const result = await translateWithGrok(text, targetLang, motherLang);
+// 处理 /start 命令
+bot.command('start', (ctx) => {
+  ctx.reply('👋 你好！我是你的AI聊天助手。来跟我聊天吧！');
+});
 
-  // 存储
-  sessions[userId] = {
-    text: text,       // 原始发来的文字
-    result: result    // 翻译出来的结果
+// 处理文本消息
+bot.on('text', async (ctx) => {
+  try {
+    const response = await chatWithAI(ctx.message.text);
+    await ctx.reply(response);
+  } catch (error) {
+    console.error('处理消息失败:', error);
+    await ctx.reply('😢 抱歉，我遇到了一些问题，请稍后再试。');
+  }
+});
+
+// 启动机器人
+bot.launch().then(() => {
+  console.log('🤖 Bot 启动成功');
+}).catch(error => {
+  console.error('启动失败:', error);
+});
+
+// 优雅退出
+process.once('SIGINT', () => bot.stop('SIGINT'));
+process.once('SIGTERM', () => bot.stop('SIGTERM'));
+
+
+// 管理员命令
+bot.command('stats', async (ctx) => {
+  if (!ctx.userConfig.isAdmin) {
+    return ctx.reply('⚠️ 此命令仅管理员可用');
+  }
+  
+  const stats = {
+    users: Object.keys(loadUserConfig()).length,
+    uptime: process.uptime(),
+    memory: process.memoryUsage()
   };
   
-
-  // 构建按钮
-  const buttons = [];
-
-  if (otherLang && otherLang.length > 0) {
-    otherLang.forEach((lang, index) => {
-      buttons.push([{ text: `Translate to ${lang}`, callback_data: `translate_${lang}` }]);
-    });
-  }
-
-  await ctx.reply(`\`${result}\``, { parse_mode: 'MarkdownV2' ,
-    reply_markup: {
-      inline_keyboard: buttons,
-    }
-  });
+  await ctx.reply(`📊 统计信息:\n用户数: ${stats.users}\n运行时间: ${Math.floor(stats.uptime / 3600)}小时\n内存使用: ${Math.floor(stats.memory.heapUsed / 1024 / 1024)}MB`);
 });
-
-// 翻译成其他语言
-bot.action(/^translate_(.+)$/, async (ctx) => {
-  try {
-    await ctx.answerCbQuery();
-    const userId = ctx.from.id;
-    const userConfig = loadUserConfig();
-    
-    const targetLang = ctx.match[1]; // 正则取出需要翻译的目标语言，比如 ja, fr, de
-    const text = sessions[userId].text; // 获取会话中存储的原文
-    const firstResult = sessions[userId].result; // 获取会话中存储的翻译结果
-    
-
-    if (!text) {
-      return ctx.reply('⚠️ 没有找到原始翻译内容，请重新发送文本。');
-    }
-
-    const result = await translateOtherLangWithGrok(text, targetLang, firstResult);
-
-    
-
-    
-    await ctx.reply(`\`${result}\``, { parse_mode: 'MarkdownV2' });
-  } catch (error) {
-    console.error('Error in translate_otherlang:', error);
-    await ctx.reply('⚠️ 翻译过程中出现错误，请稍后重试');
-  }
-});
-
-
-
-bot.launch();
-console.log('🤖 Bot 启动成功');
